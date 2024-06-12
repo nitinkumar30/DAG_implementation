@@ -8,7 +8,8 @@ from io import BytesIO
 import pandas as pd
 import PyPDF2
 
-default_args = {
+# Define default arguments for the DAG
+DEFAULT_ARGS = {
     'owner': 'airflow',
     'depends_on_past': False,
     'start_date': datetime(2024, 1, 1),
@@ -18,59 +19,79 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
+# Define the DAG with the specified default arguments and schedule interval
+DAG_ID = 'PDF_TO_BQ'
 dag = DAG(
-    'pdf_to_bq',
-    default_args=default_args,
+    DAG_ID,
+    default_args=DEFAULT_ARGS,
     description='A DAG to extract data from PDF and load into BigQuery',
     schedule_interval='@daily',
 )
 
+# Function to extract data from the PDF file
 def extract_data_from_pdf():
+    """
+    Extracts data from a PDF file stored in Google Cloud Storage.
+    """
     # Retrieve PDF file from GCP bucket
-    gcs_hook = GoogleCloudStorageHook(google_cloud_storage_conn_id='google_cloud_default')
-    pdf_content = gcs_hook.download(bucket_name='your_bucket_name', object_name='your_pdf.pdf')
+    GCS_HOOK = GoogleCloudStorageHook(google_cloud_storage_conn_id='GOOGLE_CLOUD_DEFAULT')
+    PDF_CONTENT = GCS_HOOK.download(bucket_name='YOUR_BUCKET_NAME', object_name='YOUR_PDF.pdf')
 
     # Extract data from PDF
-    pdf_reader = PyPDF2.PdfReader(BytesIO(pdf_content))
-    text = ''
-    for page in pdf_reader.pages:
-        text += page.extract_text()
+    PDF_READER = PyPDF2.PdfReader(BytesIO(PDF_CONTENT))
+    TEXT = ''
+    for page in PDF_READER.pages:
+        TEXT += page.extract_text()
     
     # Convert extracted text into dataframe (this depends on your PDF structure)
     # Example:
-    df = pd.DataFrame([text.split()], columns=['Column1', 'Column2', ...])
+    DF = pd.DataFrame([TEXT.split()], columns=['Column1', 'Column2', ...])
     
-    return df
+    return DF
 
-def validate_data(df):
+# Function to validate the extracted data
+def validate_data(DF):
+    """
+    Validates the extracted data before loading it into BigQuery.
+    """
     # Perform data validation
     # Example: check for missing values, data types, etc.
     pass
 
+# Function to load validated data into BigQuery
 def load_data_to_bq(ds, **kwargs):
+    """
+    Loads validated data into BigQuery.
+    """
     # Insert data into BigQuery table
-    bq_hook = BigQueryHook(bigquery_conn_id='bigquery_default')
-    df = kwargs.get('task_instance').xcom_pull(task_ids='extract_data')
-    bq_hook.insert_rows_from_dataframe('your_dataset.your_table', df)
+    BQ_HOOK = BigQueryHook(bigquery_conn_id='BIGQUERY_DEFAULT')
+    DF = kwargs.get('task_instance').xcom_pull(task_ids='EXTRACT_DATA')
+    BQ_HOOK.insert_rows_from_dataframe('YOUR_DATASET.YOUR_TABLE', DF)
 
-extract_data_task = PythonOperator(
-    task_id='extract_data',
+# Define tasks for the DAG
+
+# Task to extract data from PDF
+EXTRACT_DATA_TASK = PythonOperator(
+    task_id='EXTRACT_DATA',
     python_callable=extract_data_from_pdf,
     dag=dag,
 )
 
-validate_data_task = PythonOperator(
-    task_id='validate_data',
+# Task to validate the extracted data
+VALIDATE_DATA_TASK = PythonOperator(
+    task_id='VALIDATE_DATA',
     python_callable=validate_data,
-    op_kwargs={'df': '{{ task_instance.xcom_pull(task_ids="extract_data") }}'},
+    op_kwargs={'DF': '{{ task_instance.xcom_pull(task_ids="EXTRACT_DATA") }}'},
     dag=dag,
 )
 
-load_data_task = PythonOperator(
-    task_id='load_data_to_bq',
+# Task to load validated data into BigQuery
+LOAD_DATA_TASK = PythonOperator(
+    task_id='LOAD_DATA_TO_BQ',
     python_callable=load_data_to_bq,
     provide_context=True,
     dag=dag,
 )
 
-extract_data_task >> validate_data_task >> load_data_task
+# Define dependencies between tasks
+EXTRACT_DATA_TASK >> VALIDATE_DATA_TASK >> LOAD_DATA_TASK
